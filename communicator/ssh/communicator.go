@@ -118,10 +118,10 @@ func (c *comm) Start(cmd *packer.RemoteCmd) (err error) {
 				log.Printf("Remote command exited with '%d': %s", exitStatus, cmd.Command)
 			case *ssh.ExitMissingError:
 				log.Printf("Remote command exited without exit status or exit signal.")
-				exitStatus = -1
+				cmd.SetError(err.(sshDisconnectedError))
 			default:
 				log.Printf("Error occurred waiting for ssh session: %s", err.Error())
-				exitStatus = -1
+				cmd.SetError(err)
 			}
 		}
 		cmd.SetExited(exitStatus)
@@ -902,4 +902,12 @@ func scpUploadDir(root string, fs []os.FileInfo, w io.Writer, r *bufio.Reader) e
 	}
 
 	return nil
+}
+
+type sshDisconnectedError struct {
+	*ssh.ExitMissingError
+}
+
+func (s sshDisconnectedError) Disconnected() bool {
+	return true
 }

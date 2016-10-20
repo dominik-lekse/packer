@@ -60,6 +60,42 @@ func init() {
 	serverConfig.AddHostKey(signer)
 }
 
+func newMockClosingServer(t *testing.T) string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Unable to listen for connection: %s", err)
+	}
+
+	go func() {
+		defer l.Close()
+		c, err := l.Accept()
+		if err != nil {
+			t.Errorf("Unable to accept incoming connection: %s", err)
+		}
+		defer c.Close()
+		conn, chans, _, err := ssh.NewServerConn(c, serverConfig)
+		if err != nil {
+			t.Logf("Handshaking error: %v", err)
+		}
+		t.Log("Accepted SSH connection")
+		for newChannel := range chans {
+			channel, _, err := newChannel.Accept()
+			if err != nil {
+				t.Errorf("Unable to accept channel.")
+			}
+			t.Log("Accepted channel")
+
+			go func(channelType string) {
+				defer channel.Close()
+				conn.OpenChannel(channelType, nil)
+			}(newChannel.ChannelType())
+		}
+		conn.Close()
+	}()
+
+	return l.Addr().String()
+}
+
 func newMockLineServer(t *testing.T) string {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -221,4 +257,38 @@ func TestHandshakeTimeout(t *testing.T) {
 		// in a timeout scenario.
 		t.Fatalf("Expected handshake timeout, got: %s", err)
 	}
+}
+
+func TestDisconnect(t *testing.T) {
+	clientConfig := &ssh.ClientConfig{
+		User: "user",
+		Auth: []ssh.AuthMethod{
+			ssh.Password("pass"),
+		},
+	}
+
+	address := newMockClosingServer(t)
+	conn := func() (net.Conn, error) {
+		conn, err := net.Dial("tcp", address)
+		if err != nil {
+			t.Fatalf("unable to dial to remote side: %s", err)
+		}
+		return conn, err
+	}
+
+	config := &Config{
+		Connection: conn,
+		SSHConfig:  clientConfig,
+	}
+	client, err := New(address, config)
+	if err != nil {
+		t.Fatalf("error connecting to SSH: %s", err)
+	}
+
+	cmd := &packer.RemoteCmd{
+		Command: "sleep 1",
+		Stdout:  new(bytes.Buffer),
+	}
+
+	client.Start(cmd)
 }
