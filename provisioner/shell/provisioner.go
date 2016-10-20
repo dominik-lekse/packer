@@ -263,6 +263,7 @@ func (p *Provisioner) Provision(ui packer.Ui, comm packer.Communicator) error {
 		// and then the command is executed but the file doesn't exist
 		// any longer.
 		var cmd *packer.RemoteCmd
+		var exitErr error
 		err = p.retryable(func() error {
 			if _, err := f.Seek(0, 0); err != nil {
 				return err
@@ -288,15 +289,23 @@ func (p *Provisioner) Provision(ui packer.Ui, comm packer.Communicator) error {
 			cmd.Wait()
 
 			cmd = &packer.RemoteCmd{Command: command}
-			if err := cmd.StartWithUi(comm, ui); err != nil {
-				return err
-			}
-			return cmd.ExitError
+			err := cmd.StartWithUi(comm, ui)
+			log.Printf("inside retry %#v\n", cmd)
+			exitErr = cmd.ExitError
+			return err
 		})
+		log.Printf("ExpectDisconnect(%s) %t\n", p.config.Script, *p.config.ExpectDisconnect)
+		log.Println(err)
+		log.Printf("after retry %#v\n", cmd)
 
 		if err != nil {
-			if !(packer.IsCmdDisconnected(err) && *p.config.ExpectDisconnect) {
-				return err
+			return err
+		}
+		if exitErr != nil {
+			log.Println(exitErr.Error())
+			log.Println(packer.IsCmdDisconnected(exitErr))
+			if !(packer.IsCmdDisconnected(exitErr) && *p.config.ExpectDisconnect) {
+				return exitErr
 			}
 		}
 
