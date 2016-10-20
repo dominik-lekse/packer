@@ -9,6 +9,8 @@ import (
 	"github.com/mitchellh/iochan"
 )
 
+const CmdDisconnect int = 1000001
+
 // RemoteCmd represents a remote command being prepared or run.
 type RemoteCmd struct {
 	// Command is the command to run remotely. This is executed as if
@@ -34,7 +36,6 @@ type RemoteCmd struct {
 
 	// Once Exited is true, this will contain the exit code of the process.
 	ExitStatus int
-	ExitError  error
 
 	// Internal fields
 	exitCh chan struct{}
@@ -161,19 +162,6 @@ OutputLoop:
 	return nil
 }
 
-func (r *RemoteCmd) SetError(err error) {
-	r.Lock()
-	defer r.Unlock()
-
-	if r.exitCh == nil {
-		r.exitCh = make(chan struct{})
-	}
-
-	r.Exited = true
-	r.ExitError = err
-	close(r.exitCh)
-}
-
 // SetExited is a helper for setting that this process is exited. This
 // should be called by communicators who are running a remote command in
 // order to set that the command is done.
@@ -216,13 +204,4 @@ func (r *RemoteCmd) cleanOutputLine(line string) string {
 	}
 
 	return line
-}
-
-type cmdDisconnected interface {
-	Disconnected() bool
-}
-
-func IsCmdDisconnected(err error) bool {
-	cde, ok := err.(cmdDisconnected)
-	return ok && cde.Disconnected()
 }

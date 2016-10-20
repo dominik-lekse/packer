@@ -263,7 +263,6 @@ func (p *Provisioner) Provision(ui packer.Ui, comm packer.Communicator) error {
 		// and then the command is executed but the file doesn't exist
 		// any longer.
 		var cmd *packer.RemoteCmd
-		var exitErr error
 		err = p.retryable(func() error {
 			if _, err := f.Seek(0, 0); err != nil {
 				return err
@@ -289,27 +288,18 @@ func (p *Provisioner) Provision(ui packer.Ui, comm packer.Communicator) error {
 			cmd.Wait()
 
 			cmd = &packer.RemoteCmd{Command: command}
-			err := cmd.StartWithUi(comm, ui)
-			log.Printf("inside retry %#v\n", cmd)
-			exitErr = cmd.ExitError
-			return err
+			return cmd.StartWithUi(comm, ui)
 		})
-		log.Printf("ExpectDisconnect(%s) %t\n", p.config.Script, *p.config.ExpectDisconnect)
-		log.Println(err)
-		log.Printf("after retry %#v\n", cmd)
 
 		if err != nil {
 			return err
 		}
-		if exitErr != nil {
-			log.Println(exitErr.Error())
-			log.Println(packer.IsCmdDisconnected(exitErr))
-			if !(packer.IsCmdDisconnected(exitErr) && *p.config.ExpectDisconnect) {
-				return exitErr
-			}
-		}
 
-		if cmd.ExitStatus != 0 {
+		if cmd.ExitStatus == packer.CmdDisconnect {
+			if !*p.config.ExpectDisconnect {
+				return fmt.Errorf("Script disconnected unexpectedly.")
+			}
+		} else if cmd.ExitStatus != 0 {
 			return fmt.Errorf("Script exited with non-zero exit status: %d", cmd.ExitStatus)
 		}
 
